@@ -427,6 +427,52 @@ class FlowClient:
 
         return result
 
+    async def upsample_image(
+        self,
+        at: str,
+        project_id: str,
+        media_id: str,
+        target_resolution: str = "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    ) -> str:
+        """放大图片到 2K/4K
+
+        Args:
+            at: Access Token
+            project_id: 项目ID
+            media_id: 图片的 mediaId (从 batchGenerateImages 返回的 media[0]["name"])
+            target_resolution: UPSAMPLE_IMAGE_RESOLUTION_2K 或 UPSAMPLE_IMAGE_RESOLUTION_4K
+
+        Returns:
+            base64 编码的图片数据
+        """
+        url = f"{self.api_base_url}/flow/upsampleImage"
+
+        # 获取 reCAPTCHA token
+        recaptcha_token = await self._get_recaptcha_token(project_id) or ""
+        session_id = self._generate_session_id()
+
+        json_data = {
+            "mediaId": media_id,
+            "targetResolution": target_resolution,
+            "clientContext": {
+                "recaptchaToken": recaptcha_token,
+                "sessionId": session_id,
+                "projectId": project_id,
+                "tool": "PINHOLE"
+            }
+        }
+
+        result = await self._make_request(
+            method="POST",
+            url=url,
+            json_data=json_data,
+            use_at=True,
+            at_token=at
+        )
+
+        # 返回 base64 编码的图片
+        return result.get("encodedImage", "")
+
     # ========== 视频生成 (使用AT) - 异步返回 ==========
 
     async def generate_video_text(

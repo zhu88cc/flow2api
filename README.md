@@ -97,10 +97,23 @@ python main.py
 
 | 模型名称 | 说明| 尺寸 |
 |---------|--------|--------|
-| `gemini-2.5-flash-image-landscape` | 图/文生图 | 横屏 |
-| `gemini-2.5-flash-image-portrait` | 图/文生图 | 竖屏 |
-| `gemini-3.0-pro-image-landscape` | 图/文生图 | 横屏 |
-| `gemini-3.0-pro-image-portrait` | 图/文生图 | 竖屏 |
+| `gemini-2.5-flash-image-landscape` | 图/文生图 | 横屏 16:9 |
+| `gemini-2.5-flash-image-portrait` | 图/文生图 | 竖屏 9:16 |
+| `gemini-3.0-pro-image-landscape` | 图/文生图 | 横屏 16:9 |
+| `gemini-3.0-pro-image-portrait` | 图/文生图 | 竖屏 9:16 |
+| `gemini-3.0-pro-image-square` | 图/文生图 | 正方形 1:1 |
+| `gemini-3.0-pro-image-four-three` | 图/文生图 | 横屏 4:3 |
+| `gemini-3.0-pro-image-three-four` | 图/文生图 | 竖屏 3:4 |
+| `gemini-3.0-pro-image-landscape-2k` | 图/文生图 2K放大 | 横屏 16:9 |
+| `gemini-3.0-pro-image-portrait-2k` | 图/文生图 2K放大 | 竖屏 9:16 |
+| `gemini-3.0-pro-image-square-2k` | 图/文生图 2K放大 | 正方形 1:1 |
+| `gemini-3.0-pro-image-four-three-2k` | 图/文生图 2K放大 | 横屏 4:3 |
+| `gemini-3.0-pro-image-three-four-2k` | 图/文生图 2K放大 | 竖屏 3:4 |
+| `gemini-3.0-pro-image-landscape-4k` | 图/文生图 4K放大 | 横屏 16:9 |
+| `gemini-3.0-pro-image-portrait-4k` | 图/文生图 4K放大 | 竖屏 9:16 |
+| `gemini-3.0-pro-image-square-4k` | 图/文生图 4K放大 | 正方形 1:1 |
+| `gemini-3.0-pro-image-four-three-4k` | 图/文生图 4K放大 | 横屏 4:3 |
+| `gemini-3.0-pro-image-three-four-4k` | 图/文生图 4K放大 | 竖屏 3:4 |
 | `imagen-4.0-generate-preview-landscape` | 图/文生图 | 横屏 |
 | `imagen-4.0-generate-preview-portrait` | 图/文生图 | 竖屏 |
 

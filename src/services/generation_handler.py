@@ -35,6 +35,85 @@ MODEL_CONFIG = {
         "model_name": "GEM_PIX_2",
         "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT"
     },
+    "gemini-3.0-pro-image-square": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_SQUARE"
+    },
+    "gemini-3.0-pro-image-four-three": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE"
+    },
+    "gemini-3.0-pro-image-three-four": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR"
+    },
+
+    # 图片生成 - GEM_PIX_2 (Gemini 3.0 Pro) 2K 放大版
+    "gemini-3.0-pro-image-landscape-2k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.0-pro-image-portrait-2k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.0-pro-image-square-2k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_SQUARE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.0-pro-image-four-three-2k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.0-pro-image-three-four-2k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+
+    # 图片生成 - GEM_PIX_2 (Gemini 3.0 Pro) 4K 放大版
+    "gemini-3.0-pro-image-landscape-4k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+    "gemini-3.0-pro-image-portrait-4k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+    "gemini-3.0-pro-image-square-4k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_SQUARE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+    "gemini-3.0-pro-image-four-three-4k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+    "gemini-3.0-pro-image-three-four-4k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
 
     # 图片生成 - IMAGEN_3_5 (Imagen 4.0)
     "imagen-4.0-generate-preview-landscape": {
@@ -572,13 +651,72 @@ class GenerationHandler:
                 image_inputs=image_inputs
             )
 
-            # 提取URL
+            # 提取URL和mediaId
             media = result.get("media", [])
             if not media:
                 yield self._create_error_response("生成结果为空")
                 return
 
             image_url = media[0]["image"]["generatedImage"]["fifeUrl"]
+            media_id = media[0].get("name")  # 用于 upsample
+
+            # 检查是否需要 upsample
+            upsample_resolution = model_config.get("upsample")
+            if upsample_resolution and media_id:
+                resolution_name = "4K" if "4K" in upsample_resolution else "2K"
+                if stream:
+                    yield self._create_stream_chunk(f"正在放大图片到 {resolution_name}...\n")
+
+                try:
+                    # 调用 upsample API
+                    encoded_image = await self.flow_client.upsample_image(
+                        at=token.at,
+                        project_id=project_id,
+                        media_id=media_id,
+                        target_resolution=upsample_resolution
+                    )
+
+                    if encoded_image:
+                        # 保存 base64 图片到缓存目录
+                        import uuid
+                        from pathlib import Path
+
+                        filename = f"{uuid.uuid4().hex}.jpg"
+                        cache_dir = Path("tmp")
+                        cache_dir.mkdir(exist_ok=True)
+                        file_path = cache_dir / filename
+
+                        with open(file_path, "wb") as f:
+                            f.write(base64.b64decode(encoded_image))
+
+                        local_url = f"{self._get_base_url()}/tmp/{filename}"
+                        debug_logger.log_info(f"[UPSAMPLE] 图片已放大到 {resolution_name}: {filename}")
+
+                        if stream:
+                            yield self._create_stream_chunk(f"✅ 图片已放大到 {resolution_name}\n")
+
+                        # 返回放大后的图片
+                        self._last_generated_url = local_url
+                        if stream:
+                            yield self._create_stream_chunk(
+                                f"![Generated Image]({local_url})",
+                                finish_reason="stop"
+                            )
+                        else:
+                            yield self._create_completion_response(
+                                local_url,
+                                media_type="image"
+                            )
+                        return
+                    else:
+                        debug_logger.log_warning("[UPSAMPLE] 返回结果为空")
+                        if stream:
+                            yield self._create_stream_chunk(f"⚠️ 放大失败，返回原图...\n")
+
+                except Exception as e:
+                    debug_logger.log_error(f"[UPSAMPLE] 放大失败: {str(e)}")
+                    if stream:
+                        yield self._create_stream_chunk(f"⚠️ 放大失败: {str(e)}，返回原图...\n")
 
             # 缓存图片 (如果启用)
             local_url = image_url
