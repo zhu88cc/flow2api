@@ -667,56 +667,71 @@ class GenerationHandler:
                 if stream:
                     yield self._create_stream_chunk(f"正在放大图片到 {resolution_name}...\n")
 
-                try:
-                    # 调用 upsample API
-                    encoded_image = await self.flow_client.upsample_image(
-                        at=token.at,
-                        project_id=project_id,
-                        media_id=media_id,
-                        target_resolution=upsample_resolution
-                    )
+                # 4K/2K 图片重试逻辑 - 最多重试3次
+                max_retries = 3
+                for retry_attempt in range(max_retries):
+                    try:
+                        # 调用 upsample API
+                        encoded_image = await self.flow_client.upsample_image(
+                            at=token.at,
+                            project_id=project_id,
+                            media_id=media_id,
+                            target_resolution=upsample_resolution
+                        )
 
-                    if encoded_image:
-                        # 保存 base64 图片到缓存目录
-                        import uuid
-                        from pathlib import Path
+                        if encoded_image:
+                            # 保存 base64 图片到缓存目录
+                            import uuid
+                            from pathlib import Path
 
-                        filename = f"{uuid.uuid4().hex}.jpg"
-                        cache_dir = Path("tmp")
-                        cache_dir.mkdir(exist_ok=True)
-                        file_path = cache_dir / filename
+                            filename = f"{uuid.uuid4().hex}.jpg"
+                            cache_dir = Path("tmp")
+                            cache_dir.mkdir(exist_ok=True)
+                            file_path = cache_dir / filename
 
-                        with open(file_path, "wb") as f:
-                            f.write(base64.b64decode(encoded_image))
+                            with open(file_path, "wb") as f:
+                                f.write(base64.b64decode(encoded_image))
 
-                        local_url = f"{self._get_base_url()}/tmp/{filename}"
-                        debug_logger.log_info(f"[UPSAMPLE] 图片已放大到 {resolution_name}: {filename}")
+                            local_url = f"{self._get_base_url()}/tmp/{filename}"
+                            debug_logger.log_info(f"[UPSAMPLE] 图片已放大到 {resolution_name}: {filename}")
 
-                        if stream:
-                            yield self._create_stream_chunk(f"✅ 图片已放大到 {resolution_name}\n")
+                            if stream:
+                                yield self._create_stream_chunk(f"✅ 图片已放大到 {resolution_name}\n")
 
-                        # 返回放大后的图片
-                        self._last_generated_url = local_url
-                        if stream:
-                            yield self._create_stream_chunk(
-                                f"![Generated Image]({local_url})",
-                                finish_reason="stop"
-                            )
+                            # 返回放大后的图片
+                            self._last_generated_url = local_url
+                            if stream:
+                                yield self._create_stream_chunk(
+                                    f"![Generated Image]({local_url})",
+                                    finish_reason="stop"
+                                )
+                            else:
+                                yield self._create_completion_response(
+                                    local_url,
+                                    media_type="image"
+                                )
+                            return
                         else:
-                            yield self._create_completion_response(
-                                local_url,
-                                media_type="image"
-                            )
-                        return
-                    else:
-                        debug_logger.log_warning("[UPSAMPLE] 返回结果为空")
-                        if stream:
-                            yield self._create_stream_chunk(f"⚠️ 放大失败，返回原图...\n")
+                            debug_logger.log_warning("[UPSAMPLE] 返回结果为空")
+                            if stream:
+                                yield self._create_stream_chunk(f"⚠️ 放大失败，返回原图...\n")
+                            break  # 空结果不重试
 
-                except Exception as e:
-                    debug_logger.log_error(f"[UPSAMPLE] 放大失败: {str(e)}")
-                    if stream:
-                        yield self._create_stream_chunk(f"⚠️ 放大失败: {str(e)}，返回原图...\n")
+                    except Exception as e:
+                        error_str = str(e)
+                        debug_logger.log_error(f"[UPSAMPLE] 放大失败 (尝试 {retry_attempt + 1}/{max_retries}): {error_str}")
+                        
+                        # 检查是否是403错误，需要重试
+                        if "403" in error_str and retry_attempt < max_retries - 1:
+                            if stream:
+                                yield self._create_stream_chunk(f"⚠️ 放大遇到403错误，正在重新获取验证码重试 ({retry_attempt + 2}/{max_retries})...\n")
+                            # 等待一小段时间后重试
+                            await asyncio.sleep(1)
+                            continue
+                        else:
+                            if stream:
+                                yield self._create_stream_chunk(f"⚠️ 放大失败: {error_str}，返回原图...\n")
+                            break
 
             # 缓存图片 (如果启用)
             local_url = image_url

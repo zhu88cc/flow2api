@@ -101,13 +101,14 @@ class FileCache:
 
         return f"{url_hash}{ext}"
 
-    async def download_and_cache(self, url: str, media_type: str) -> str:
+    async def download_and_cache(self, url: str, media_type: str, max_retries: int = 3) -> str:
         """
-        Download file from URL and cache it locally
+        Download file from URL and cache it locally (不使用代理)
 
         Args:
             url: File URL to download
             media_type: 'image' or 'video'
+            max_retries: Maximum retry attempts for 403 errors
 
         Returns:
             Local cache filename
@@ -128,20 +129,41 @@ class FileCache:
                 except Exception:
                     pass
 
-        # Download file
+        # Download file with retry logic (不使用代理)
         debug_logger.log_info(f"Downloading file from: {url}")
 
-        # Get proxy if available
-        proxy_url = None
-        if self.proxy_manager:
-            proxy_config = await self.proxy_manager.get_proxy_config()
-            if proxy_config and proxy_config.enabled and proxy_config.proxy_url:
-                proxy_url = proxy_config.proxy_url
+        last_error = None
+        for retry_attempt in range(max_retries):
+            try:
+                result = await self._try_download(url, file_path, None, filename)
+                if result:
+                    return result
+            except Exception as e:
+                last_error = e
+                error_str = str(e)
+                debug_logger.log_warning(f"Download attempt {retry_attempt + 1}/{max_retries} failed: {error_str}")
+                
+                # Check if it's a 403 error that might benefit from retry
+                if "403" in error_str and retry_attempt < max_retries - 1:
+                    debug_logger.log_info(f"Got 403 error, retrying...")
+                    await asyncio.sleep(1)
+                    continue
+                elif retry_attempt < max_retries - 1:
+                    await asyncio.sleep(0.5)
+                    continue
+                else:
+                    break
 
+        raise Exception(f"Failed to cache file after {max_retries} attempts: {last_error}")
+
+    async def _try_download(self, url: str, file_path: Path, proxy_url: str, filename: str) -> Optional[str]:
+        """Try to download file using various methods"""
+
+    async def _try_download(self, url: str, file_path: Path, proxy_url: str, filename: str) -> Optional[str]:
+        """Try to download file using various methods (不使用代理)"""
         # Try method 1: curl_cffi with browser impersonation
         try:
             async with AsyncSession() as session:
-                proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
                 headers = {
                     "Accept": "*/*",
                     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
@@ -155,7 +177,6 @@ class FileCache:
                 response = await session.get(
                     url,
                     timeout=60,
-                    proxies=proxies,
                     headers=headers,
                     impersonate="chrome120",
                     verify=False
@@ -166,10 +187,14 @@ class FileCache:
                         f.write(response.content)
                     debug_logger.log_info(f"File cached (curl_cffi): {filename} ({len(response.content)} bytes)")
                     return filename
+                elif response.status_code == 403:
+                    raise Exception(f"HTTP 403 Forbidden")
                 else:
                     debug_logger.log_warning(f"curl_cffi failed with HTTP {response.status_code}, trying wget...")
 
         except Exception as e:
+            if "403" in str(e):
+                raise  # Re-raise 403 errors for retry logic
             debug_logger.log_warning(f"curl_cffi failed: {str(e)}, trying wget...")
 
         # Try method 2: wget command
@@ -188,20 +213,11 @@ class FileCache:
                 "--header=Connection: keep-alive"
             ]
 
-            # Add proxy if configured
-            if proxy_url:
-                # wget uses environment variables for proxy
-                env = os.environ.copy()
-                env['http_proxy'] = proxy_url
-                env['https_proxy'] = proxy_url
-            else:
-                env = None
-
             # Add URL
             wget_cmd.append(url)
 
             # Execute wget
-            result = subprocess.run(wget_cmd, capture_output=True, timeout=90, env=env)
+            result = subprocess.run(wget_cmd, capture_output=True, timeout=90)
 
             if result.returncode == 0 and file_path.exists():
                 file_size = file_path.stat().st_size
@@ -212,11 +228,15 @@ class FileCache:
                     raise Exception("Downloaded file is empty")
             else:
                 error_msg = result.stderr.decode('utf-8', errors='ignore') if result.stderr else "Unknown error"
+                if "403" in error_msg:
+                    raise Exception(f"HTTP 403 Forbidden (wget)")
                 debug_logger.log_warning(f"wget failed: {error_msg}, trying curl...")
 
         except FileNotFoundError:
             debug_logger.log_warning("wget not found, trying curl...")
         except Exception as e:
+            if "403" in str(e):
+                raise  # Re-raise 403 errors for retry logic
             debug_logger.log_warning(f"wget failed: {str(e)}, trying curl...")
 
         # Try method 3: system curl command
@@ -235,10 +255,6 @@ class FileCache:
                 "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             ]
 
-            # Add proxy if configured
-            if proxy_url:
-                curl_cmd.extend(["-x", proxy_url])
-
             # Add URL
             curl_cmd.append(url)
 
@@ -254,6 +270,8 @@ class FileCache:
                     raise Exception("Downloaded file is empty")
             else:
                 error_msg = result.stderr.decode('utf-8', errors='ignore') if result.stderr else "Unknown error"
+                if "403" in error_msg:
+                    raise Exception(f"HTTP 403 Forbidden (curl)")
                 raise Exception(f"curl command failed: {error_msg}")
 
         except Exception as e:

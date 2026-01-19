@@ -201,7 +201,7 @@
                         <div>
                             <label class="inline-flex items-center gap-2 cursor-pointer">
                                 <input type="checkbox" id="cfgProxyEnabled" class="h-4 w-4 rounded border-input">
-                                <span class="text-sm font-medium">启用代理</span>
+                                <span class="text-sm font-medium">启用单一代理</span>
                             </label>
                         </div>
                         <div>
@@ -210,6 +210,49 @@
                             <p class="text-xs text-muted-foreground mt-1">支持 HTTP 和 SOCKS5 代理</p>
                         </div>
                         <button onclick="saveProxyConfig()" class="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 w-full">保存配置</button>
+                    </div>
+                </div>
+
+                <!-- 代理池配置 -->
+                <div class="rounded-lg border border-border bg-background p-6">
+                    <h3 class="text-lg font-semibold mb-4">代理池配置</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="inline-flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="cfgProxyPoolEnabled" class="h-4 w-4 rounded border-input" onchange="toggleProxyPoolOptions()">
+                                <span class="text-sm font-medium">启用代理池轮询</span>
+                            </label>
+                            <p class="text-xs text-muted-foreground mt-1">启用后将使用代理池轮询，忽略单一代理配置</p>
+                        </div>
+
+                        <div id="proxyPoolOptions" style="display: none;" class="space-y-4 pt-4 border-t border-border">
+                            <!-- 添加代理 -->
+                            <div class="flex gap-2">
+                                <input id="newProxyUrl" class="flex h-9 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="http://127.0.0.1:7890">
+                                <input id="newProxyName" class="flex h-9 w-32 rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="备注(可选)">
+                                <button onclick="addProxyToPool()" class="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4">添加</button>
+                            </div>
+
+                            <!-- 代理列表 -->
+                            <div class="rounded-md border border-border">
+                                <table class="w-full text-sm">
+                                    <thead>
+                                        <tr class="border-b border-border bg-muted/50">
+                                            <th class="h-8 px-3 text-left font-medium text-muted-foreground">代理地址</th>
+                                            <th class="h-8 px-3 text-left font-medium text-muted-foreground">备注</th>
+                                            <th class="h-8 px-3 text-left font-medium text-muted-foreground">成功/失败</th>
+                                            <th class="h-8 px-3 text-left font-medium text-muted-foreground">状态</th>
+                                            <th class="h-8 px-3 text-right font-medium text-muted-foreground">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="proxyPoolTableBody" class="divide-y divide-border">
+                                        <!-- 动态填充 -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <button onclick="saveProxyPoolConfig()" class="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 w-full">保存代理池配置</button>
                     </div>
                 </div>
 
@@ -713,9 +756,18 @@
         clearAllLogs=async()=>{if(!confirm('确定要清空所有日志吗？此操作不可恢复！'))return;try{const r=await apiRequest('/api/logs',{method:'DELETE'});if(!r)return;const d=await r.json();if(d.success){showToast('日志已清空','success');await loadLogs()}else{showToast('清空失败: '+(d.message||'未知错误'),'error')}}catch(e){showToast('清空失败: '+e.message,'error')}},
         showLogDetail=(logId)=>{const log=window.allLogs.find(l=>l.id===logId);if(!log){showToast('日志不存在','error');return}const content=$('logDetailContent');let detailHtml='';if(log.status_code===200){try{const responseBody=log.response_body?JSON.parse(log.response_body):null;if(responseBody){if(responseBody.url){detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">生成结果</h4><div class="rounded-md border border-border p-3 bg-muted/30"><p class="text-sm mb-2"><span class="font-medium">文件URL:</span></p><a href="${responseBody.url}" target="_blank" class="text-blue-600 hover:underline text-xs break-all">${responseBody.url}</a></div></div>`}else if(responseBody.data&&responseBody.data.length>0){const item=responseBody.data[0];if(item.url){detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">生成结果</h4><div class="rounded-md border border-border p-3 bg-muted/30"><p class="text-sm mb-2"><span class="font-medium">文件URL:</span></p><a href="${item.url}" target="_blank" class="text-blue-600 hover:underline text-xs break-all">${item.url}</a></div></div>`}else{detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">响应数据</h4><pre class="rounded-md border border-border p-3 bg-muted/30 text-xs overflow-x-auto">${JSON.stringify(responseBody,null,2)}</pre></div>`}}else{detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">响应数据</h4><pre class="rounded-md border border-border p-3 bg-muted/30 text-xs overflow-x-auto">${JSON.stringify(responseBody,null,2)}</pre></div>`}}else{detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">响应信息</h4><p class="text-sm text-muted-foreground">无响应数据</p></div>`}}catch(e){detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">响应数据</h4><pre class="rounded-md border border-border p-3 bg-muted/30 text-xs overflow-x-auto">${log.response_body||'无'}</pre></div>`}}else{try{const responseBody=log.response_body?JSON.parse(log.response_body):null;if(responseBody&&responseBody.error){detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm text-red-600">错误原因</h4><div class="rounded-md border border-red-200 p-3 bg-red-50"><p class="text-sm text-red-700">${responseBody.error.message||responseBody.error||'未知错误'}</p></div></div>`}else if(log.response_body&&log.response_body!=='{}'){detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm text-red-600">错误信息</h4><pre class="rounded-md border border-red-200 p-3 bg-red-50 text-xs overflow-x-auto">${log.response_body}</pre></div>`}}catch(e){if(log.response_body&&log.response_body!=='{}'){detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm text-red-600">错误信息</h4><pre class="rounded-md border border-red-200 p-3 bg-red-50 text-xs overflow-x-auto">${log.response_body}</pre></div>`}}}detailHtml+=`<div class="space-y-2 pt-4 border-t border-border"><h4 class="font-medium text-sm">基本信息</h4><div class="grid grid-cols-2 gap-2 text-sm"><div><span class="text-muted-foreground">操作:</span> ${log.operation}</div><div><span class="text-muted-foreground">状态码:</span> <span class="inline-flex items-center rounded px-2 py-0.5 text-xs ${log.status_code===200?'bg-green-50 text-green-700':'bg-red-50 text-red-700'}">${log.status_code}</span></div><div><span class="text-muted-foreground">耗时:</span> ${log.duration.toFixed(2)}秒</div><div><span class="text-muted-foreground">时间:</span> ${log.created_at?new Date(log.created_at).toLocaleString('zh-CN'):'-'}</div></div></div>`;content.innerHTML=detailHtml;$('logDetailModal').classList.remove('hidden')},
         closeLogDetailModal=()=>{$('logDetailModal').classList.add('hidden')},
+        // ========== 代理池管理 ==========
+        toggleProxyPoolOptions=()=>{const enabled=$('cfgProxyPoolEnabled').checked;$('proxyPoolOptions').style.display=enabled?'block':'none'},
+        loadProxyPoolConfig=async()=>{try{const r=await apiRequest('/api/proxy-pool/config');if(!r)return;const d=await r.json();if(d.success&&d.config){$('cfgProxyPoolEnabled').checked=d.config.pool_enabled||false;toggleProxyPoolOptions()}await loadProxyPoolList()}catch(e){console.error('加载代理池配置失败:',e)}},
+        loadProxyPoolList=async()=>{try{const r=await apiRequest('/api/proxy-pool/list');if(!r)return;const d=await r.json();if(d.success){renderProxyPoolTable(d.proxies||[])}}catch(e){console.error('加载代理池列表失败:',e)}},
+        renderProxyPoolTable=(proxies)=>{const tb=$('proxyPoolTableBody');if(!proxies||proxies.length===0){tb.innerHTML='<tr><td colspan="5" class="py-4 px-3 text-center text-muted-foreground text-sm">暂无代理，请添加</td></tr>';return}tb.innerHTML=proxies.map(p=>`<tr><td class="py-2 px-3 text-xs font-mono">${p.proxy_url}</td><td class="py-2 px-3 text-xs">${p.name||'-'}</td><td class="py-2 px-3 text-xs"><span class="text-green-600">${p.success_count||0}</span>/<span class="text-red-600">${p.fail_count||0}</span></td><td class="py-2 px-3"><span class="inline-flex items-center rounded px-2 py-0.5 text-xs ${p.enabled?'bg-green-50 text-green-700':'bg-gray-100 text-gray-700'}">${p.enabled?'启用':'禁用'}</span></td><td class="py-2 px-3 text-right"><button onclick="toggleProxyInPool(${p.id})" class="inline-flex items-center justify-center rounded-md hover:bg-accent h-7 px-2 text-xs mr-1">${p.enabled?'禁用':'启用'}</button><button onclick="deleteProxyFromPool(${p.id})" class="inline-flex items-center justify-center rounded-md hover:bg-destructive/10 hover:text-destructive h-7 px-2 text-xs">删除</button></td></tr>`).join('')},
+        addProxyToPool=async()=>{const url=$('newProxyUrl').value.trim(),name=$('newProxyName').value.trim();if(!url)return showToast('请输入代理地址','error');try{const r=await apiRequest('/api/proxy-pool/add',{method:'POST',body:JSON.stringify({proxy_url:url,name:name||null})});if(!r)return;const d=await r.json();if(d.success){showToast('代理添加成功','success');$('newProxyUrl').value='';$('newProxyName').value='';await loadProxyPoolList()}else{showToast('添加失败: '+(d.detail||'未知错误'),'error')}}catch(e){showToast('添加失败: '+e.message,'error')}},
+        toggleProxyInPool=async(id)=>{try{const r=await apiRequest(`/api/proxy-pool/${id}/toggle`,{method:'POST'});if(!r)return;const d=await r.json();if(d.success){showToast(d.message,'success');await loadProxyPoolList()}else{showToast('操作失败: '+(d.detail||'未知错误'),'error')}}catch(e){showToast('操作失败: '+e.message,'error')}},
+        deleteProxyFromPool=async(id)=>{if(!confirm('确定要删除这个代理吗?'))return;try{const r=await apiRequest(`/api/proxy-pool/${id}`,{method:'DELETE'});if(!r)return;const d=await r.json();if(d.success){showToast('代理删除成功','success');await loadProxyPoolList()}else{showToast('删除失败: '+(d.detail||'未知错误'),'error')}}catch(e){showToast('删除失败: '+e.message,'error')}},
+        saveProxyPoolConfig=async()=>{const enabled=$('cfgProxyPoolEnabled').checked;try{const r=await apiRequest('/api/proxy-pool/config',{method:'POST',body:JSON.stringify({pool_enabled:enabled,rotation_mode:'round_robin'})});if(!r)return;const d=await r.json();if(d.success){showToast('代理池配置保存成功','success')}else{showToast('保存失败: '+(d.detail||'未知错误'),'error')}}catch(e){showToast('保存失败: '+e.message,'error')}},
         showToast=(m,t='info')=>{const d=document.createElement('div'),bc={success:'bg-green-600',error:'bg-destructive',info:'bg-primary'};d.className=`fixed bottom-4 right-4 ${bc[t]||bc.info} text-white px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium z-50 animate-slide-up`;d.textContent=m;document.body.appendChild(d);setTimeout(()=>{d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(()=>d.parentNode&&document.body.removeChild(d),300)},2000)},
         logout=()=>{if(!confirm('确定要退出登录吗?'))return;localStorage.removeItem('adminToken');location.href='/login'},
-        switchTab=t=>{const cap=n=>n.charAt(0).toUpperCase()+n.slice(1);['tokens','settings','logs'].forEach(n=>{const active=n===t;$(`panel${cap(n)}`).classList.toggle('hidden',!active);$(`tab${cap(n)}`).classList.toggle('border-primary',active);$(`tab${cap(n)}`).classList.toggle('text-primary',active);$(`tab${cap(n)}`).classList.toggle('border-transparent',!active);$(`tab${cap(n)}`).classList.toggle('text-muted-foreground',!active)});if(t==='settings'){loadAdminConfig();loadProxyConfig();loadCacheConfig();loadGenerationTimeout();loadCaptchaConfig();loadPluginConfig();loadATAutoRefreshConfig()}else if(t==='logs'){loadLogs()}};
+        switchTab=t=>{const cap=n=>n.charAt(0).toUpperCase()+n.slice(1);['tokens','settings','logs'].forEach(n=>{const active=n===t;$(`panel${cap(n)}`).classList.toggle('hidden',!active);$(`tab${cap(n)}`).classList.toggle('border-primary',active);$(`tab${cap(n)}`).classList.toggle('text-primary',active);$(`tab${cap(n)}`).classList.toggle('border-transparent',!active);$(`tab${cap(n)}`).classList.toggle('text-muted-foreground',!active)});if(t==='settings'){loadAdminConfig();loadProxyConfig();loadProxyPoolConfig();loadCacheConfig();loadGenerationTimeout();loadCaptchaConfig();loadPluginConfig();loadATAutoRefreshConfig()}else if(t==='logs'){loadLogs()}};
         window.addEventListener('DOMContentLoaded',()=>{checkAuth();refreshTokens();loadATAutoRefreshConfig()});
     </script>
 </body>

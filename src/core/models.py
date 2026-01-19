@@ -116,6 +116,18 @@ class ProxyConfig(BaseModel):
     proxy_url: Optional[str] = None
 
 
+class ProxyPoolItem(BaseModel):
+    """Proxy pool item"""
+    id: Optional[int] = None
+    proxy_url: str
+    name: Optional[str] = None
+    enabled: bool = True
+    success_count: int = 0
+    fail_count: int = 0
+    last_used_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+
 class GenerationConfig(BaseModel):
     """Generation timeout configuration"""
     id: int = 1

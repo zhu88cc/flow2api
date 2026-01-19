@@ -237,6 +237,34 @@ class Database:
                     )
                 """)
 
+            # Check and create proxy_pool table if missing
+            if not await self._table_exists(db, "proxy_pool"):
+                print("  ✓ Creating missing table: proxy_pool")
+                await db.execute("""
+                    CREATE TABLE proxy_pool (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        proxy_url TEXT NOT NULL,
+                        name TEXT,
+                        enabled BOOLEAN DEFAULT 1,
+                        success_count INTEGER DEFAULT 0,
+                        fail_count INTEGER DEFAULT 0,
+                        last_used_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+            # Check and create proxy_pool_config table if missing
+            if not await self._table_exists(db, "proxy_pool_config"):
+                print("  ✓ Creating missing table: proxy_pool_config")
+                await db.execute("""
+                    CREATE TABLE proxy_pool_config (
+                        id INTEGER PRIMARY KEY DEFAULT 1,
+                        pool_enabled BOOLEAN DEFAULT 0,
+                        rotation_mode TEXT DEFAULT 'round_robin',
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
             # ========== Step 2: Add missing columns to existing tables ==========
             # Check and add missing columns to tokens table
             if await self._table_exists(db, "tokens"):
@@ -504,6 +532,30 @@ class Database:
                     id INTEGER PRIMARY KEY DEFAULT 1,
                     connection_token TEXT DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Proxy pool table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS proxy_pool (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    proxy_url TEXT NOT NULL,
+                    name TEXT,
+                    enabled BOOLEAN DEFAULT 1,
+                    success_count INTEGER DEFAULT 0,
+                    fail_count INTEGER DEFAULT 0,
+                    last_used_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Proxy pool config table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS proxy_pool_config (
+                    id INTEGER PRIMARY KEY DEFAULT 1,
+                    pool_enabled BOOLEAN DEFAULT 0,
+                    rotation_mode TEXT DEFAULT 'round_robin',
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -1266,4 +1318,109 @@ class Database:
                     VALUES (1, ?, ?)
                 """, (connection_token, auto_enable_on_update))
 
+            await db.commit()
+
+    # ========== Proxy Pool Operations ==========
+
+    async def add_proxy_pool_item(self, proxy_url: str, name: str = None) -> int:
+        """Add a proxy to the pool"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                INSERT INTO proxy_pool (proxy_url, name, enabled)
+                VALUES (?, ?, 1)
+            """, (proxy_url, name))
+            await db.commit()
+            return cursor.lastrowid
+
+    async def get_all_proxy_pool_items(self) -> list:
+        """Get all proxies in the pool"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT * FROM proxy_pool ORDER BY created_at DESC
+            """)
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    async def get_enabled_proxy_pool_items(self) -> list:
+        """Get all enabled proxies in the pool"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT * FROM proxy_pool WHERE enabled = 1 ORDER BY last_used_at ASC NULLS FIRST
+            """)
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    async def update_proxy_pool_item(self, proxy_id: int, **kwargs):
+        """Update a proxy in the pool"""
+        async with aiosqlite.connect(self.db_path) as db:
+            updates = []
+            params = []
+            for key, value in kwargs.items():
+                if value is not None:
+                    updates.append(f"{key} = ?")
+                    params.append(value)
+            if updates:
+                params.append(proxy_id)
+                query = f"UPDATE proxy_pool SET {', '.join(updates)} WHERE id = ?"
+                await db.execute(query, params)
+                await db.commit()
+
+    async def delete_proxy_pool_item(self, proxy_id: int):
+        """Delete a proxy from the pool"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM proxy_pool WHERE id = ?", (proxy_id,))
+            await db.commit()
+
+    async def record_proxy_usage(self, proxy_id: int, success: bool):
+        """Record proxy usage statistics"""
+        async with aiosqlite.connect(self.db_path) as db:
+            if success:
+                await db.execute("""
+                    UPDATE proxy_pool 
+                    SET success_count = success_count + 1, last_used_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (proxy_id,))
+            else:
+                await db.execute("""
+                    UPDATE proxy_pool 
+                    SET fail_count = fail_count + 1, last_used_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (proxy_id,))
+            await db.commit()
+
+    async def get_proxy_pool_config(self) -> dict:
+        """Get proxy pool configuration"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM proxy_pool_config WHERE id = 1")
+            row = await cursor.fetchone()
+            if row:
+                return dict(row)
+            return {"pool_enabled": False, "rotation_mode": "round_robin"}
+
+    async def update_proxy_pool_config(self, pool_enabled: bool = None, rotation_mode: str = None):
+        """Update proxy pool configuration"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM proxy_pool_config WHERE id = 1")
+            row = await cursor.fetchone()
+
+            if row:
+                current = dict(row)
+                new_enabled = pool_enabled if pool_enabled is not None else current.get("pool_enabled", False)
+                new_mode = rotation_mode if rotation_mode is not None else current.get("rotation_mode", "round_robin")
+                await db.execute("""
+                    UPDATE proxy_pool_config
+                    SET pool_enabled = ?, rotation_mode = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = 1
+                """, (new_enabled, new_mode))
+            else:
+                new_enabled = pool_enabled if pool_enabled is not None else False
+                new_mode = rotation_mode if rotation_mode is not None else "round_robin"
+                await db.execute("""
+                    INSERT INTO proxy_pool_config (id, pool_enabled, rotation_mode)
+                    VALUES (1, ?, ?)
+                """, (new_enabled, new_mode))
             await db.commit()

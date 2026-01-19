@@ -1069,3 +1069,131 @@ async def plugin_update_token(request: dict, authorization: Optional[str] = Head
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to add token: {str(e)}")
+
+
+# ========== Proxy Pool Management ==========
+
+class AddProxyRequest(BaseModel):
+    proxy_url: str
+    name: Optional[str] = None
+
+
+class UpdateProxyRequest(BaseModel):
+    proxy_url: Optional[str] = None
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class ProxyPoolConfigRequest(BaseModel):
+    pool_enabled: bool
+    rotation_mode: Optional[str] = "round_robin"
+
+
+@router.get("/api/proxy-pool/list")
+async def get_proxy_pool_list(token: str = Depends(verify_admin_token)):
+    """Get all proxies in the pool"""
+    proxies = await proxy_manager.get_all_pool_proxies()
+    return {
+        "success": True,
+        "proxies": proxies
+    }
+
+
+@router.post("/api/proxy-pool/add")
+async def add_proxy_to_pool(
+    request: AddProxyRequest,
+    token: str = Depends(verify_admin_token)
+):
+    """Add a proxy to the pool"""
+    try:
+        proxy_id = await proxy_manager.add_pool_proxy(request.proxy_url, request.name)
+        return {
+            "success": True,
+            "message": "代理添加成功",
+            "proxy_id": proxy_id
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/api/proxy-pool/{proxy_id}")
+async def update_proxy_in_pool(
+    proxy_id: int,
+    request: UpdateProxyRequest,
+    token: str = Depends(verify_admin_token)
+):
+    """Update a proxy in the pool"""
+    try:
+        update_data = {}
+        if request.proxy_url is not None:
+            update_data["proxy_url"] = request.proxy_url
+        if request.name is not None:
+            update_data["name"] = request.name
+        if request.enabled is not None:
+            update_data["enabled"] = request.enabled
+        
+        await proxy_manager.update_pool_proxy(proxy_id, **update_data)
+        return {"success": True, "message": "代理更新成功"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api/proxy-pool/{proxy_id}")
+async def delete_proxy_from_pool(
+    proxy_id: int,
+    token: str = Depends(verify_admin_token)
+):
+    """Delete a proxy from the pool"""
+    try:
+        await proxy_manager.delete_pool_proxy(proxy_id)
+        return {"success": True, "message": "代理删除成功"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/proxy-pool/config")
+async def get_proxy_pool_config(token: str = Depends(verify_admin_token)):
+    """Get proxy pool configuration"""
+    config = await proxy_manager.get_pool_config()
+    return {
+        "success": True,
+        "config": config
+    }
+
+
+@router.post("/api/proxy-pool/config")
+async def update_proxy_pool_config(
+    request: ProxyPoolConfigRequest,
+    token: str = Depends(verify_admin_token)
+):
+    """Update proxy pool configuration"""
+    try:
+        await proxy_manager.update_pool_config(request.pool_enabled, request.rotation_mode)
+        return {"success": True, "message": "代理池配置更新成功"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/proxy-pool/{proxy_id}/toggle")
+async def toggle_proxy_in_pool(
+    proxy_id: int,
+    token: str = Depends(verify_admin_token)
+):
+    """Toggle proxy enabled status"""
+    try:
+        proxies = await proxy_manager.get_all_pool_proxies()
+        proxy = next((p for p in proxies if p["id"] == proxy_id), None)
+        if not proxy:
+            raise HTTPException(status_code=404, detail="代理不存在")
+        
+        new_enabled = not proxy["enabled"]
+        await proxy_manager.update_pool_proxy(proxy_id, enabled=new_enabled)
+        return {
+            "success": True,
+            "message": f"代理已{'启用' if new_enabled else '禁用'}",
+            "enabled": new_enabled
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
